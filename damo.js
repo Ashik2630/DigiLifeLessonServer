@@ -47,14 +47,14 @@ async function initializeDatabase() {
     CommentsCollection = database.collection("comments");
     ReportsCollection = database.collection("reports");
 
-    await LikesCollection.createIndex(
-      { lessonId: 1, userId: 1 },
-      { unique: true },
-    );
-    await FavoritesCollection.createIndex(
-      { lessonId: 1, userId: 1 },
-      { unique: true },
-    );
+    // await LikesCollection.createIndex(
+    //   { lessonId: 1, userId: 1 },
+    //   { unique: true },
+    // );
+    // await FavoritesCollection.createIndex(
+    //   { lessonId: 1, userId: 1 },
+    //   { unique: true },
+    // );
 
     dbConnected = true;
   } catch (error) {
@@ -117,13 +117,10 @@ app.get("/api/likes/:lessonId", async (req, res) => {
     return res.status(400).json({ message: "lessonId is required" });
   }
 
-  const count = await LikesCollection.countDocuments({ lessonId: lessonId });
+  const count = await LikesCollection.countDocuments({ lessonId });
   let liked = false;
   if (userId) {
-    const existing = await LikesCollection.findOne({
-      lessonId: lessonId,
-      userId,
-    });
+    const existing = await LikesCollection.findOne({ lessonId, userId });
     liked = !!existing;
   }
   return res.json({ liked, count });
@@ -139,24 +136,21 @@ app.post("/api/likes", async (req, res) => {
       .json({ message: "lessonId and userId are required" });
   }
 
-  const existing = await LikesCollection.findOne({
-    lessonId: lessonId,
-    userId,
-  });
+  const existing = await LikesCollection.findOne({ lessonId, userId });
 
   if (existing) {
     // If already liked, remove the like (unlike)
-    await LikesCollection.deleteOne({ lessonId: lessonId, userId });
-    const count = await LikesCollection.countDocuments({ lessonId: lessonId });
+    await LikesCollection.deleteOne({ lessonId, userId });
+    const count = await LikesCollection.countDocuments({ lessonId });
     return res.json({ liked: false, count });
   } else {
     // If not liked yet, add a new like
     await LikesCollection.insertOne({
-      lessonId: lessonId,
+      lessonId,
       userId,
       createdAt: new Date(),
     });
-    const count = await LikesCollection.countDocuments({ lessonId: lessonId });
+    const count = await LikesCollection.countDocuments({ lessonId });
     return res.json({ liked: true, count });
   }
 });
@@ -176,11 +170,9 @@ app.get("/api/favorites/:lessonId", async (req, res) => {
   const { lessonId } = req.params;
   const { userId } = req.query;
 
-  const count = await FavoritesCollection.countDocuments({
-    lessonId: lessonId,
-  });
+  const count = await FavoritesCollection.countDocuments({ lessonId });
   const saved = userId
-    ? !!(await FavoritesCollection.findOne({ lessonId: lessonId, userId }))
+    ? !!(await FavoritesCollection.findOne({ lessonId, userId }))
     : false;
 
   res.json({ saved, count });
@@ -189,35 +181,61 @@ app.get("/api/favorites/:lessonId", async (req, res) => {
 // [POST] Toggle Favorite status: saves a lesson to favorites or removes it if already saved
 app.post("/api/favorites", async (req, res) => {
   const { lessonId, userId } = req.body;
-  if (!lessonId || !userId) {
-    return res
-      .status(400)
-      .json({ message: "lessonId and userId are required" });
+
+  const filter = { lessonId, userId };
+  console.log(filter)
+
+  const existing = await FavoritesCollection.findOne(filter);
+   console.log(existing, 'Existing favorite');
+  if (existing) {
+    await FavoritesCollection.deleteOne(filter);
+
+    const count = await FavoritesCollection.countDocuments({ lessonId });
+
+    return res.json({
+      saved: false,
+      count,
+    });
   }
 
-  const existing = await FavoritesCollection.findOne({
-    lessonId: lessonId,
-    userId,
+  await FavoritesCollection.updateOne(
+    filter,
+    {
+      $setOnInsert: {
+        lessonId,
+        userId,
+        createdAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+
+  const count = await FavoritesCollection.countDocuments({ lessonId });
+    console.log(count, 'Favorite count');
+  return res.json({
+    saved: true,
+    count,
   });
-  if (existing) {
-    // If already in favorites, remove it
-    await FavoritesCollection.deleteOne({ lessonId: lessonId, userId });
-    const count = await FavoritesCollection.countDocuments({
-      lessonId: lessonId,
-    });
-    return res.json({ saved: false, count });
-  } else {
-    // If not in favorites, add it
-    await FavoritesCollection.insertOne({
-      lessonId: lessonId,
-      userId,
-      createdAt: new Date(),
-    });
-    const count = await FavoritesCollection.countDocuments({
-      lessonId: lessonId,
-    });
-    return res.json({ saved: true, count });
+
+  console.log(lessonId, userId,'userId lessonId' )
+  if (!lessonId || !userId) {
+    return res.status(400).json({ message: "lessonId and userId are required" });
   }
+
+  // const existing = await FavoritesCollection.findOne({ lessonId, userId });
+  // console.log(existing)
+  // if (existing) {
+  //   // If already in favorites, remove it
+  //   await FavoritesCollection.deleteOne({ lessonId, userId });
+  //   const count = await FavoritesCollection.countDocuments({ lessonId });
+  //   return res.json({ saved: false, count });
+  // } else {
+  //   // If not in favorites, add it
+  //   await FavoritesCollection.insertOne({ lessonId, userId, createdAt: new Date() });
+  //   const count = await FavoritesCollection.countDocuments({ lessonId });
+  //   console.log(count)
+  //   return res.json({ saved: true, count });
+  // }
 });
 
 // [GET] Fetch all favorite entries for a user along with the full lesson details (via Aggregate Lookup)
@@ -252,32 +270,14 @@ app.get("/api/favorites/user/:userId", async (req, res) => {
 
 // [DELETE] Manually remove a specific lesson from a user's favorite list
 app.delete("/api/favorites/:userId/:lessonId", async (req, res) => {
-  try {
-    const { userId, lessonId } = req.params;
-    console.log("DELETE HIT:", req.params);
-
-    const query = {
-      userId: ObjectId.isValid(userId) ? new ObjectId(userId) : userId,
-      lessonId: ObjectId.isValid(lessonId) ? new ObjectId(lessonId) : lessonId,
-    };
-
-    const result = await FavoritesCollection.deleteOne(query);
-
-    if (result.deletedCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Item not found in database",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Deleted successfully",
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: "Internal server error" });
-  }
+  const { userId, lessonId } = req.params;
+  console.log(req.params);
+  const result = await FavoritesCollection.deleteOne({
+    userId: ObjectId.isValid(userId) ? new ObjectId(userId) : userId,
+    lessonId: ObjectId.isValid(lessonId) ? new ObjectId(lessonId) : lessonId,
+  });
+  res.json(result);
+  console.log(res);
 });
 
 // ---------------- Comments Related Data ----------------
