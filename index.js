@@ -29,6 +29,7 @@ let LikesCollection;
 let FavoritesCollection;
 let CommentsCollection;
 let ReportsCollection;
+let userCollection;
 let dbConnected = false;
 
 // Function to initialize database connection and create indexes
@@ -46,6 +47,7 @@ async function initializeDatabase() {
     FavoritesCollection = database.collection("favorites");
     CommentsCollection = database.collection("comments");
     ReportsCollection = database.collection("reports");
+    userCollection = database.collection("user");
 
     await LikesCollection.createIndex(
       { lessonId: 1, userId: 1 },
@@ -74,13 +76,50 @@ app.use(async (req, res, next) => {
 
 // [GET] Fetch all lessons or filter by a specific lessonId query parameter
 app.get("/api/lessons", async (req, res) => {
-  const query = {};
-  if (req.query.lessonId) {
-    query.lessonId = req.query.lessonId;
+  try {
+    const query = {};
+    if (req.query.lessonId) {
+      query.lessonId = req.query.lessonId;
+    }
+
+    
+    const allLessons = await lessonsCollection
+      .find(query)
+      .sort({ _id: -1 })
+      .toArray();
+
+    
+    const options = {
+      timeZone: "Asia/Dhaka",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    };
+
+    const todayStr = new Date().toLocaleDateString("en-CA", options);
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const yesterdayStr = yesterday.toLocaleDateString("en-CA", options);
+
+    console.log("Today:", todayStr, "Yesterday:", yesterdayStr);
+
+    const recentQuery = {
+      ...query,
+      createdAt: { $in: [todayStr, yesterdayStr] },
+    };
+
+    const last24HoursLessons = await lessonsCollection
+      .find(recentQuery)
+      .toArray();
+
+    res.json({
+      allLessons: allLessons,
+      last24HoursCount: last24HoursLessons.length,
+    });
+  } catch (error) {
+    console.error("Error fetching lessons:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
-  const cursor = lessonsCollection.find(query);
-  const results = await cursor.toArray();
-  res.json(results);
 });
 
 // [GET] Fetch details of a single lesson using its MongoDB document ID (_id)
@@ -334,6 +373,65 @@ app.get("/api/reports", async (req, res) => {
     .sort({ createdAt: -1 })
     .toArray();
   res.json({ data: reports });
+});
+
+// -------------Admin User Management Related Data ----------------
+
+// get all users
+app.get("/api/users", async (req, res) => {
+  const users = await userCollection.find({}).toArray();
+  res.json({ data: users });
+});
+
+// ------------------ Admin User Management Related Data ----------------
+
+// Update a user's role (admin or user) based on the provided user ID and new role in the request body
+app.patch("/api/users/:id", async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { role } = req.body;
+
+    if (!["admin", "user"].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Role must be either admin or user",
+      });
+    }
+
+    const filter = { _id: new ObjectId(userId) };
+    const updateDoc = { $set: { role } };
+
+    const result = await userCollection.updateOne(filter, updateDoc);
+
+    if (result.modifiedCount > 0) {
+      return res.json({ success: true, message: "User role updated successfully!" });
+    }
+
+    return res.status(404).json({ success: false, message: "User not found or no change made." });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+
+// delete admin management user
+app.delete("/api/users/:id", async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const filter = { _id: new ObjectId(userId) };
+
+    const result = await userCollection.deleteOne(filter);
+
+    if (result.deletedCount > 0) {
+      return res.json({ success: true, message: "User deleted successfully!" });
+    }
+
+    return res.status(404).json({ success: false, message: "User not found." });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
 });
 
 // ---------------- Server Initialization ----------------
