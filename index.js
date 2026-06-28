@@ -82,13 +82,11 @@ app.get("/api/lessons", async (req, res) => {
       query.lessonId = req.query.lessonId;
     }
 
-    
     const allLessons = await lessonsCollection
       .find(query)
       .sort({ _id: -1 })
       .toArray();
 
-    
     const options = {
       timeZone: "Asia/Dhaka",
       year: "numeric",
@@ -404,16 +402,22 @@ app.patch("/api/users/:id", async (req, res) => {
     const result = await userCollection.updateOne(filter, updateDoc);
 
     if (result.modifiedCount > 0) {
-      return res.json({ success: true, message: "User role updated successfully!" });
+      return res.json({
+        success: true,
+        message: "User role updated successfully!",
+      });
     }
 
-    return res.status(404).json({ success: false, message: "User not found or no change made." });
+    return res
+      .status(404)
+      .json({ success: false, message: "User not found or no change made." });
   } catch (error) {
     console.error(error);
-    return res.status(500).json({ success: false, message: "Internal Server Error" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal Server Error" });
   }
 });
-
 
 // delete admin management user
 app.delete("/api/users/:id", async (req, res) => {
@@ -430,7 +434,56 @@ app.delete("/api/users/:id", async (req, res) => {
     return res.status(404).json({ success: false, message: "User not found." });
   } catch (error) {
     console.error(error);
-    return res.status(500).json({ success: false, message: "Internal Server Error" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+// ১. রিভিউ স্ট্যাটাস আপডেট করার API (Approved / Reviewed)
+app.patch("/api/lessons/review/:id", async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const { isReviewed } = req.body; // true অথবা false আসবে
+
+    const result = await lessonsCollection.updateOne(
+      { _id: new ObjectId(lessonId) },
+      { $set: { isReviewed: isReviewed } },
+    );
+
+    res.json({ success: true, message: "Review status updated!" });
+  } catch (error) {
+    res.status(500).json({ error: "Server Error" });
+  }
+});
+
+// ২. ফিচারড করার API (Make Featured / Remove Featured)
+app.patch("/api/lessons/featured/:id", async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const { isFeatured } = req.body; 
+
+    const result = await lessonsCollection.updateOne(
+      { _id: new ObjectId(lessonId) },
+      { $set: { isFeatured: isFeatured } },
+    );
+
+    res.json({ success: true, message: "Featured status updated!" });
+  } catch (error) {
+    res.status(500).json({ error: "Server Error" });
+  }
+});
+
+// ৩. লেসন ডিলিট করার API
+app.delete("/api/lessons/:id", async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const result = await lessonsCollection.deleteOne({
+      _id: new ObjectId(lessonId),
+    });
+    res.json({ success: true, message: "Lesson deleted successfully!" });
+  } catch (error) {
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
