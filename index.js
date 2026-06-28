@@ -120,6 +120,19 @@ app.get("/api/lessons", async (req, res) => {
   }
 });
 
+// get all featured lessons
+app.get("/api/lessons/featured", async (req, res) => {
+  try {
+    const featuredLessons = await lessonsCollection
+      .find({ isFeatured: true })
+      .toArray();
+    res.json({ success: true, data: featuredLessons });
+  } catch (error) {
+    console.error("Error fetching featured lessons:", error);
+    res.status(500).json({ success: false, error: "Server Error" });
+  }
+});
+
 // [GET] Fetch details of a single lesson using its MongoDB document ID (_id)
 app.get("/api/lessons/:id", async (req, res) => {
   const id = req.params.id;
@@ -382,7 +395,6 @@ app.get("/api/users", async (req, res) => {
 });
 
 // ------------------ Admin User Management Related Data ----------------
-
 // Update a user's role (admin or user) based on the provided user ID and new role in the request body
 app.patch("/api/users/:id", async (req, res) => {
   try {
@@ -461,7 +473,7 @@ app.patch("/api/lessons/review/:id", async (req, res) => {
 app.patch("/api/lessons/featured/:id", async (req, res) => {
   try {
     const lessonId = req.params.id;
-    const { isFeatured } = req.body; 
+    const { isFeatured } = req.body;
 
     const result = await lessonsCollection.updateOne(
       { _id: new ObjectId(lessonId) },
