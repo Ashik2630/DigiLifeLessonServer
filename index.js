@@ -74,45 +74,74 @@ app.use(async (req, res, next) => {
 
 // ---------------- Lesson Related Data ----------------
 
-// ১. টপ কন্ট্রিবিউটরদের ডেটা পাওয়ার API
-app.get("/api/users/top-contributors", async (req, res) => {
+// ১. [GET] Top Contributors of the Week (সবচেয়ে বেশি লেসন তৈরি করা ইউজার)
+app.get("/api/top-contributors", async (req, res) => {
   try {
+    constoneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7); // গত ৭ দিনের ডাটা ফিল্টার করতে চাইলে
+
     const topContributors = await lessonsCollection
       .aggregate([
+        // { $match: { createdAt: { $gte: oneWeekAgo } } }, // গত ১ সপ্তাহের ডাটা চাইলে এই লাইন কমেন্টআউট সরান
         {
-          // প্রতিটি ইউজার অনুযায়ী গ্রুপ করা এবং তাদের লেসন সংখ্যা কাউন্ট করা
           $group: {
-            _id: "$userEmail", // বা $userId
+            _id: "$userEmail", // ইউজার ইমেইল দিয়ে গ্রুপ করা
             userName: { $first: "$userName" },
             userImage: { $first: "$userImage" },
             lessonCount: { $sum: 1 }, // মোট কয়টি লেসন তৈরি করেছে
           },
         },
-        { $sort: { lessonCount: -1 } }, // সবচেয়ে বেশি লেসন তৈরি করা ইউজার উপরে থাকবে
-        { $limit: 5 }, // শীর্ষ ৫ জন ইউজারকে নেওয়া হবে
+        { $sort: { lessonCount: -1 } }, // সবচেয়ে বেশি লেসন তৈরি করা ইউজার সবার উপরে থাকবে
+        { $limit: 5 }, // সেরা ৫ জন কন্ট্রিবিউটর নিবে
       ])
       .toArray();
 
     res.json({ success: true, data: topContributors });
   } catch (error) {
     console.error("Error fetching top contributors:", error);
-    res.status(500).json({ success: false, error: "Server Error" });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
-// ২. সবচেয়ে বেশি সেভ হওয়া লেসন পাওয়ার API
-app.get("/api/lessons/most-saved", async (req, res) => {
+// ২. [GET] Most Saved Lessons (সবচেয়ে বেশি ফেভারেট/সেভ করা লেসন)
+app.get("/api/most-saved-lessons", async (req, res) => {
   try {
-    const mostSavedLessons = await lessonsCollection
-      .find({})
-      .sort({ savedCount: -1 }) // সবচেয়ে বেশি savedCount থাকা লেসন আগে আসবে
-      .limit(6) // শীর্ষ ৬টি লেসন দেখাবে
-      .toArray();
+    const mostSaved = await FavoritesCollection.aggregate([
+      {
+        $group: {
+          _id: "$lessonId", // লেসন আইডি দিয়ে গ্রুপ করা
+          savedCount: { $sum: 1 }, // কয়বার সেভ হয়েছে তা যোগ করা
+        },
+      },
+      {
+        $addFields: {
+          lessonObjId: {
+            $cond: {
+              if: { $eq: [{ $strLenCP: "$_id" }, 24] }, // ObjectId ভ্যালিডেশন চেক
+              then: { $toObjectId: "$_id" },
+              else: "$_id",
+            },
+          },
+        },
+      },
+      {
+        // lessons কালেকশন থেকে লেসনের ডিটেইলস নিয়ে আসা
+        $lookup: {
+          from: "lessons",
+          localField: "lessonObjId",
+          foreignField: "_id",
+          as: "lessonDetails",
+        },
+      },
+      { $unwind: "$lessonDetails" },
+      { $sort: { savedCount: -1 } }, // সবচেয়ে বেশি সেভ হওয়া লেসন আগে আসবে
+      { $limit: 4 }, // সেরা ৪টি লেসন নিবে
+    ]).toArray();
 
-    res.json({ success: true, data: mostSavedLessons });
+    res.json({ success: true, data: mostSaved });
   } catch (error) {
     console.error("Error fetching most saved lessons:", error);
-    res.status(500).json({ success: false, error: "Server Error" });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
@@ -578,7 +607,6 @@ app.post("/api/reports", async (req, res) => {
     });
   }
 });
-
 
 // ৩. [DELETE] রিপোর্ট ডিলিশন (অফেন্ডিং লেসন এবং তার সমস্ত রিপোর্ট ডিলিট করা)
 app.delete("/api/reports/action/delete/:lessonId", async (req, res) => {
