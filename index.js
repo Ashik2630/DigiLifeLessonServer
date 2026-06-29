@@ -74,6 +74,48 @@ app.use(async (req, res, next) => {
 
 // ---------------- Lesson Related Data ----------------
 
+// ১. টপ কন্ট্রিবিউটরদের ডেটা পাওয়ার API
+app.get("/api/users/top-contributors", async (req, res) => {
+  try {
+    const topContributors = await lessonsCollection
+      .aggregate([
+        {
+          // প্রতিটি ইউজার অনুযায়ী গ্রুপ করা এবং তাদের লেসন সংখ্যা কাউন্ট করা
+          $group: {
+            _id: "$userEmail", // বা $userId
+            userName: { $first: "$userName" },
+            userImage: { $first: "$userImage" },
+            lessonCount: { $sum: 1 }, // মোট কয়টি লেসন তৈরি করেছে
+          },
+        },
+        { $sort: { lessonCount: -1 } }, // সবচেয়ে বেশি লেসন তৈরি করা ইউজার উপরে থাকবে
+        { $limit: 5 }, // শীর্ষ ৫ জন ইউজারকে নেওয়া হবে
+      ])
+      .toArray();
+
+    res.json({ success: true, data: topContributors });
+  } catch (error) {
+    console.error("Error fetching top contributors:", error);
+    res.status(500).json({ success: false, error: "Server Error" });
+  }
+});
+
+// ২. সবচেয়ে বেশি সেভ হওয়া লেসন পাওয়ার API
+app.get("/api/lessons/most-saved", async (req, res) => {
+  try {
+    const mostSavedLessons = await lessonsCollection
+      .find({})
+      .sort({ savedCount: -1 }) // সবচেয়ে বেশি savedCount থাকা লেসন আগে আসবে
+      .limit(6) // শীর্ষ ৬টি লেসন দেখাবে
+      .toArray();
+
+    res.json({ success: true, data: mostSavedLessons });
+  } catch (error) {
+    console.error("Error fetching most saved lessons:", error);
+    res.status(500).json({ success: false, error: "Server Error" });
+  }
+});
+
 // [GET] Fetch all lessons or filter by a specific lessonId query parameter
 app.get("/api/lessons", async (req, res) => {
   try {
@@ -154,6 +196,69 @@ app.get("/api/lessons/user/:userId", async (req, res) => {
   const query = { userId: userId };
   const results = await lessonsCollection.find(query).toArray();
   res.json({ data: results });
+});
+
+// ---------------- My Lesson Update & Delete Related ----------------
+
+// [PATCH] নির্দিষ্ট লেসনের ডাটা আপডেট করার API (ইউজারের নিজস্ব লেসন এডিট করার জন্য)
+app.patch("/api/lessons/:id", async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const updatedData = req.body;
+
+    // সিকিউরিটির জন্য ডাটাবেজের মেইন _id কে req.body থেকে আলাদা করে ফেলা ভালো
+    if (updatedData._id) {
+      delete updatedData._id;
+    }
+
+    const filter = { _id: new ObjectId(lessonId) };
+    const updateDoc = {
+      $set: updatedData, // ফ্রন্টএন্ড থেকে পাঠানো সব ডাটা এখানে আপডেট হবে
+    };
+
+    const result = await lessonsCollection.updateOne(filter, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Lesson not found" });
+    }
+
+    res.json({
+      success: true,
+      message: "Lesson updated successfully!",
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error("Error updating lesson:", error);
+    res.status(500).json({ success: false, error: "Internal Server Error" });
+  }
+});
+
+// [DELETE] নির্দিষ্ট লেসন ডাটাবেজ থেকে ডিলিট করার API
+app.delete("/api/lessons/:id", async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+
+    // আইডি ভ্যালিড কিনা চেক করা
+    if (!ObjectId.isValid(lessonId)) {
+      return res.status(400).json({ success: false, message: "Invalid Lesson ID format" });
+    }
+
+    const query = { _id: new ObjectId(lessonId) };
+    const result = await lessonsCollection.deleteOne(query);
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Lesson not found or already deleted" });
+    }
+
+    // রেসপন্স পাঠানো
+    res.json({ 
+      success: true, 
+      message: "Lesson deleted successfully!" 
+    });
+  } catch (error) {
+    console.error("Error deleting lesson:", error);
+    res.status(500).json({ success: false, error: "Internal Server Error" });
+  }
 });
 
 // ---------------- Likes Related Data ----------------
@@ -360,30 +465,92 @@ app.post("/api/comments", async (req, res) => {
 
 // ---------------- Reports Related Data ----------------
 
-// [POST] Submit a report against an objectionable or rule-breaking lesson
-app.post("/api/reports", async (req, res) => {
-  const { lessonId, userId, reason } = req.body;
-  if (!lessonId || !reason) {
-    return res
-      .status(400)
-      .json({ message: "lessonId and reason are required" });
+// ১. [GET] সব রিপোর্টকে ফ্রন্টএন্ড ফরম্যাটে গ্রুপ করে লেসনের টাইটেলসহ নিয়ে আসা
+app.get("/api/reports", async (req, res) => {
+  try {
+    const groupedReports = await ReportsCollection.aggregate([
+      { $match: { status: "pending" } }, // শুধু পেন্ডিং রিপোর্টগুলো প্রসেস হবে
+      {
+        // লেসন আইডি স্ট্রিং হলে অবজেক্ট আইডিতে রূপান্তর (যদি ডাটাবেজে ObjectId হিসেবে সেভ করেন)
+        $addFields: {
+          lessonObjId: { $toObjectId: "$lessonId" }
+        }
+      },
+      {
+        // lessonsCollection থেকে লেসনের টাইটেল বা অন্যান্য ইনফো নিয়ে আসা
+        $lookup: {
+          from: "lessons", // আপনার lessons কালেকশনের নাম এখানে দিন
+          localField: "lessonObjId",
+          foreignField: "_id",
+          as: "lessonDetails"
+        }
+      },
+      { $unwind: "$lessonDetails" }, // অ্যারে থেকে অবজেক্টে রূপান্তর
+      {
+        // ফ্রন্টএন্ডের মক ডাটা ফরম্যাটে গ্রুপ করা
+        $group: {
+          _id: "$lessonId",
+          title: { $first: "$lessonDetails.title" },
+          reportCount: { $sum: 1 },
+          latestReportDate: { $max: "$createdAt" },
+          reports: {
+            $push: {
+              reporter: { $ifNull: ["$userEmail", "Anonymous"] }, // আপনার রিপোর্টে ইমেইল থাকলে দিবেন, না হলে userId
+              date: "$createdAt",
+              reason: "$reason",
+              details: { $ifNull: ["$details", "No additional details provided."] }
+            }
+          }
+        }
+      },
+      {
+        // ফ্রন্টএন্ড ভ্যারিয়েবলের সাথে ফিল্ড ম্যাচ করানো
+        $project: {
+          _id: 0,
+          id: "$_id",
+          title: 1,
+          reportCount: 1,
+          latestReportDate: { $dateToString: { format: "%m/%d/%Y", date: "$latestReportDate" } },
+          reports: 1
+        }
+      }
+    ]).toArray();
+
+    res.json({ success: true, data: groupedReports });
+  } catch (error) {
+    console.error("Error fetching reports:", error);
+    res.status(500).json({ success: false, error: "Server Error" });
   }
-  await ReportsCollection.insertOne({
-    lessonId,
-    userId: userId || null,
-    reason,
-    status: "pending",
-    createdAt: new Date(),
-  });
-  return res.json({ success: true });
 });
 
-// [GET] Retrieve all submitted reports for admin review, ordered by newest first
-app.get("/api/reports", async (req, res) => {
-  const reports = await ReportsCollection.find({})
-    .sort({ createdAt: -1 })
-    .toArray();
-  res.json({ data: reports });
+// ২. [DELETE] রিপোর্ট ডিলিশন (অফেন্ডিং লেসন এবং তার সমস্ত রিপোর্ট ডিলিট করা)
+app.delete("/api/reports/action/delete/:lessonId", async (req, res) => {
+  const { lessonId } = req.params;
+  try {
+    // ক) লেসন কালেকশন থেকে মেইন লেসনটি ডিলিট করা
+    await lessonsCollection.deleteOne({ _id: new ObjectId(lessonId) });
+    // খ) রিপোর্ট কালেকশন থেকে এই লেসনের সমস্ত রিপোর্ট ডিলিট করা
+    await ReportsCollection.deleteMany({ lessonId: lessonId });
+
+    res.json({ success: true, message: "Lesson and associated reports deleted successfully." });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ৩. [PATCH] রিপোর্ট ইগনোর/ডিসমিস করা (লেসন থাকবে, শুধু রিপোর্টের স্ট্যাটাস 'dismissed' হবে)
+app.patch("/api/reports/action/ignore/:lessonId", async (req, res) => {
+  const { lessonId } = req.params;
+  try {
+    // এই লেসনের সব রিপোর্টের স্ট্যাটাস পেন্ডিং থেকে dismissed করে দেওয়া হলো
+    await ReportsCollection.updateMany(
+      { lessonId: lessonId },
+      { $set: { status: "dismissed" } }
+    );
+    res.json({ success: true, message: "All reports for this lesson have been dismissed." });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // -------------Admin User Management Related Data ----------------
