@@ -251,12 +251,10 @@ app.delete("/api/lessons/:id", async (req, res) => {
     const result = await lessonsCollection.deleteOne(query);
 
     if (result.deletedCount === 0) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message: "Lesson not found or already deleted",
-        });
+      return res.status(404).json({
+        success: false,
+        message: "Lesson not found or already deleted",
+      });
     }
 
     // রেসপন্স পাঠানো
@@ -536,7 +534,53 @@ app.get("/api/reports", async (req, res) => {
   }
 });
 
-// ২. [DELETE] রিপোর্ট ডিলিশন (অফেন্ডিং লেসন এবং তার সমস্ত রিপোর্ট ডিলিট করা)
+// ২. [POST] ইউজার কর্তৃক নতুন কোনো লেসন রিপোর্ট সাবমিট করা
+app.post("/api/reports", async (req, res) => {
+  try {
+    const { userId, userEmail, lessonId, reason, details } = req.body;
+
+    console.log("Incoming Report Data:", req.body);
+
+    // ১. প্রয়োজনীয় ফিল্ডগুলো ফ্রন্টএন্ড থেকে এসেছে কিনা তা চেক করা (ভ্যালিডেশন)
+    if (!userId || !lessonId || !reason) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Missing required fields. userId, lessonId, and reason are mandatory.",
+      });
+    }
+
+    // ২. ডাটাবেজে সেভ করার জন্য অবজেক্ট তৈরি করা (আপনার GET এপিআই এর সাথে হুবহু মিল রেখে)
+    const newReport = {
+      userId: userId,
+      userEmail: userEmail || "Anonymous", // ইউজার ইমেইল না থাকলে 'Anonymous' হবে
+      lessonId: lessonId, // আপনার GET এগ্রিগেশনে $toObjectId করা আছে, তাই এটি স্ট্রিং আকারে যাবে
+      reason: reason,
+      details: details || "No additional details provided.",
+      status: "pending", // ডিফল্ট স্ট্যাটাস 'pending' থাকবে যাতে GET এপিআই-তে শো করে
+      createdAt: new Date(), // আপনার এগ্রিগেশনের $max: "$createdAt" এর জন্য এটি প্রয়োজন
+    };
+
+    // ৩. রিপোর্ট কালেকশনে ডাটা ইনসার্ট করা
+    const result = await ReportsCollection.insertOne(newReport);
+
+    // ৪. সাকসেস রেসপন্স পাঠানো
+    res.status(201).json({
+      success: true,
+      message: "Report submitted successfully. Admin will review it shortly.",
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Backend Report Insertion Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while processing the report.",
+    });
+  }
+});
+
+
+// ৩. [DELETE] রিপোর্ট ডিলিশন (অফেন্ডিং লেসন এবং তার সমস্ত রিপোর্ট ডিলিট করা)
 app.delete("/api/reports/action/delete/:lessonId", async (req, res) => {
   const { lessonId } = req.params;
   try {
@@ -554,7 +598,7 @@ app.delete("/api/reports/action/delete/:lessonId", async (req, res) => {
   }
 });
 
-// ৩. [PATCH] রিপোর্ট ইগনোর/ডিসমিস করা (লেসন থাকবে, শুধু রিপোর্টের স্ট্যাটাস 'dismissed' হবে)
+// 4. [PATCH] রিপোর্ট ইগনোর/ডিসমিস করা (লেসন থাকবে, শুধু রিপোর্টের স্ট্যাটাস 'dismissed' হবে)
 app.patch("/api/reports/action/ignore/:lessonId", async (req, res) => {
   const { lessonId } = req.params;
   try {
