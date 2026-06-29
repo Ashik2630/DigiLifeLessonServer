@@ -219,7 +219,9 @@ app.patch("/api/lessons/:id", async (req, res) => {
     const result = await lessonsCollection.updateOne(filter, updateDoc);
 
     if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: "Lesson not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Lesson not found" });
     }
 
     res.json({
@@ -240,20 +242,27 @@ app.delete("/api/lessons/:id", async (req, res) => {
 
     // আইডি ভ্যালিড কিনা চেক করা
     if (!ObjectId.isValid(lessonId)) {
-      return res.status(400).json({ success: false, message: "Invalid Lesson ID format" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid Lesson ID format" });
     }
 
     const query = { _id: new ObjectId(lessonId) };
     const result = await lessonsCollection.deleteOne(query);
 
     if (result.deletedCount === 0) {
-      return res.status(404).json({ success: false, message: "Lesson not found or already deleted" });
+      return res
+        .status(404)
+        .json({
+          success: false,
+          message: "Lesson not found or already deleted",
+        });
     }
 
     // রেসপন্স পাঠানো
-    res.json({ 
-      success: true, 
-      message: "Lesson deleted successfully!" 
+    res.json({
+      success: true,
+      message: "Lesson deleted successfully!",
     });
   } catch (error) {
     console.error("Error deleting lesson:", error);
@@ -412,8 +421,8 @@ app.delete("/api/favorites/:userId/:lessonId", async (req, res) => {
     console.log("DELETE HIT:", req.params);
 
     const query = {
-      userId: ObjectId.isValid(userId) ? new ObjectId(userId) : userId,
-      lessonId: ObjectId.isValid(lessonId) ? new ObjectId(lessonId) : lessonId,
+      userId: userId,
+      lessonId: lessonId,
     };
 
     const result = await FavoritesCollection.deleteOne(query);
@@ -473,8 +482,8 @@ app.get("/api/reports", async (req, res) => {
       {
         // লেসন আইডি স্ট্রিং হলে অবজেক্ট আইডিতে রূপান্তর (যদি ডাটাবেজে ObjectId হিসেবে সেভ করেন)
         $addFields: {
-          lessonObjId: { $toObjectId: "$lessonId" }
-        }
+          lessonObjId: { $toObjectId: "$lessonId" },
+        },
       },
       {
         // lessonsCollection থেকে লেসনের টাইটেল বা অন্যান্য ইনফো নিয়ে আসা
@@ -482,8 +491,8 @@ app.get("/api/reports", async (req, res) => {
           from: "lessons", // আপনার lessons কালেকশনের নাম এখানে দিন
           localField: "lessonObjId",
           foreignField: "_id",
-          as: "lessonDetails"
-        }
+          as: "lessonDetails",
+        },
       },
       { $unwind: "$lessonDetails" }, // অ্যারে থেকে অবজেক্টে রূপান্তর
       {
@@ -498,10 +507,12 @@ app.get("/api/reports", async (req, res) => {
               reporter: { $ifNull: ["$userEmail", "Anonymous"] }, // আপনার রিপোর্টে ইমেইল থাকলে দিবেন, না হলে userId
               date: "$createdAt",
               reason: "$reason",
-              details: { $ifNull: ["$details", "No additional details provided."] }
-            }
-          }
-        }
+              details: {
+                $ifNull: ["$details", "No additional details provided."],
+              },
+            },
+          },
+        },
       },
       {
         // ফ্রন্টএন্ড ভ্যারিয়েবলের সাথে ফিল্ড ম্যাচ করানো
@@ -510,10 +521,12 @@ app.get("/api/reports", async (req, res) => {
           id: "$_id",
           title: 1,
           reportCount: 1,
-          latestReportDate: { $dateToString: { format: "%m/%d/%Y", date: "$latestReportDate" } },
-          reports: 1
-        }
-      }
+          latestReportDate: {
+            $dateToString: { format: "%m/%d/%Y", date: "$latestReportDate" },
+          },
+          reports: 1,
+        },
+      },
     ]).toArray();
 
     res.json({ success: true, data: groupedReports });
@@ -532,7 +545,10 @@ app.delete("/api/reports/action/delete/:lessonId", async (req, res) => {
     // খ) রিপোর্ট কালেকশন থেকে এই লেসনের সমস্ত রিপোর্ট ডিলিট করা
     await ReportsCollection.deleteMany({ lessonId: lessonId });
 
-    res.json({ success: true, message: "Lesson and associated reports deleted successfully." });
+    res.json({
+      success: true,
+      message: "Lesson and associated reports deleted successfully.",
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -545,9 +561,12 @@ app.patch("/api/reports/action/ignore/:lessonId", async (req, res) => {
     // এই লেসনের সব রিপোর্টের স্ট্যাটাস পেন্ডিং থেকে dismissed করে দেওয়া হলো
     await ReportsCollection.updateMany(
       { lessonId: lessonId },
-      { $set: { status: "dismissed" } }
+      { $set: { status: "dismissed" } },
     );
-    res.json({ success: true, message: "All reports for this lesson have been dismissed." });
+    res.json({
+      success: true,
+      message: "All reports for this lesson have been dismissed.",
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
