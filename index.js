@@ -74,25 +74,25 @@ app.use(async (req, res, next) => {
 
 // ---------------- Lesson Related Data ----------------
 
-// ১. [GET] Top Contributors of the Week (সবচেয়ে বেশি লেসন তৈরি করা ইউজার)
+// 1. [GET] Top Contributors of the Week
 app.get("/api/top-contributors", async (req, res) => {
   try {
-    constoneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7); // গত ৭ দিনের ডাটা ফিল্টার করতে চাইলে
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7); // Use this to filter data from the last 7 days
 
     const topContributors = await lessonsCollection
       .aggregate([
-        // { $match: { createdAt: { $gte: oneWeekAgo } } }, // গত ১ সপ্তাহের ডাটা চাইলে এই লাইন কমেন্টআউট সরান
+        // { $match: { createdAt: { $gte: oneWeekAgo } } }, // Remove this line if you want to include data from the last 1 week
         {
           $group: {
-            _id: "$userEmail", // ইউজার ইমেইল দিয়ে গ্রুপ করা
+            _id: "$userEmail", // Group by user email
             userName: { $first: "$userName" },
             userImage: { $first: "$userImage" },
-            lessonCount: { $sum: 1 }, // মোট কয়টি লেসন তৈরি করেছে
+            lessonCount: { $sum: 1 }, // Count how many lessons the user created
           },
         },
-        { $sort: { lessonCount: -1 } }, // সবচেয়ে বেশি লেসন তৈরি করা ইউজার সবার উপরে থাকবে
-        { $limit: 5 }, // সেরা ৫ জন কন্ট্রিবিউটর নিবে
+        { $sort: { lessonCount: -1 } }, // Users with the most lessons will appear at the top
+        { $limit: 5 }, // Select the top 5 contributors
       ])
       .toArray();
 
@@ -103,21 +103,21 @@ app.get("/api/top-contributors", async (req, res) => {
   }
 });
 
-// ২. [GET] Most Saved Lessons (সবচেয়ে বেশি ফেভারেট/সেভ করা লেসন)
+// 2. [GET] Most Saved Lessons
 app.get("/api/most-saved-lessons", async (req, res) => {
   try {
     const mostSaved = await FavoritesCollection.aggregate([
       {
         $group: {
-          _id: "$lessonId", // লেসন আইডি দিয়ে গ্রুপ করা
-          savedCount: { $sum: 1 }, // কয়বার সেভ হয়েছে তা যোগ করা
+          _id: "$lessonId", // Group by lesson ID
+          savedCount: { $sum: 1 }, // Count how many times it was saved
         },
       },
       {
         $addFields: {
           lessonObjId: {
             $cond: {
-              if: { $eq: [{ $strLenCP: "$_id" }, 24] }, // ObjectId ভ্যালিডেশন চেক
+              if: { $eq: [{ $strLenCP: "$_id" }, 24] }, // ObjectId validation check
               then: { $toObjectId: "$_id" },
               else: "$_id",
             },
@@ -125,7 +125,7 @@ app.get("/api/most-saved-lessons", async (req, res) => {
         },
       },
       {
-        // lessons কালেকশন থেকে লেসনের ডিটেইলস নিয়ে আসা
+        // Fetch lesson details from the lessons collection
         $lookup: {
           from: "lessons",
           localField: "lessonObjId",
@@ -134,8 +134,8 @@ app.get("/api/most-saved-lessons", async (req, res) => {
         },
       },
       { $unwind: "$lessonDetails" },
-      { $sort: { savedCount: -1 } }, // সবচেয়ে বেশি সেভ হওয়া লেসন আগে আসবে
-      { $limit: 4 }, // সেরা ৪টি লেসন নিবে
+      { $sort: { savedCount: -1 } }, // The most saved lessons will appear first
+      { $limit: 4 }, // Select the top 4 lessons
     ]).toArray();
 
     res.json({ success: true, data: mostSaved });
@@ -229,20 +229,20 @@ app.get("/api/lessons/user/:userId", async (req, res) => {
 
 // ---------------- My Lesson Update & Delete Related ----------------
 
-// [PATCH] নির্দিষ্ট লেসনের ডাটা আপডেট করার API (ইউজারের নিজস্ব লেসন এডিট করার জন্য)
+// [PATCH] API to update the data of a specific lesson (for editing a user's own lesson)
 app.patch("/api/lessons/:id", async (req, res) => {
   try {
     const lessonId = req.params.id;
     const updatedData = req.body;
 
-    // সিকিউরিটির জন্য ডাটাবেজের মেইন _id কে req.body থেকে আলাদা করে ফেলা ভালো
+    // For security, remove the main database _id from req.body before updating
     if (updatedData._id) {
       delete updatedData._id;
     }
 
     const filter = { _id: new ObjectId(lessonId) };
     const updateDoc = {
-      $set: updatedData, // ফ্রন্টএন্ড থেকে পাঠানো সব ডাটা এখানে আপডেট হবে
+      $set: updatedData, // All data sent from the frontend will be updated here
     };
 
     const result = await lessonsCollection.updateOne(filter, updateDoc);
@@ -264,12 +264,12 @@ app.patch("/api/lessons/:id", async (req, res) => {
   }
 });
 
-// [DELETE] নির্দিষ্ট লেসন ডাটাবেজ থেকে ডিলিট করার API
+// [DELETE] API to delete a specific lesson from the database
 app.delete("/api/lessons/:id", async (req, res) => {
   try {
     const lessonId = req.params.id;
 
-    // আইডি ভ্যালিড কিনা চেক করা
+    // Check whether the ID format is valid
     if (!ObjectId.isValid(lessonId)) {
       return res
         .status(400)
@@ -286,7 +286,7 @@ app.delete("/api/lessons/:id", async (req, res) => {
       });
     }
 
-    // রেসপন্স পাঠানো
+    // Send the response
     res.json({
       success: true,
       message: "Lesson deleted successfully!",
@@ -501,29 +501,29 @@ app.post("/api/comments", async (req, res) => {
 
 // ---------------- Reports Related Data ----------------
 
-// ১. [GET] সব রিপোর্টকে ফ্রন্টএন্ড ফরম্যাটে গ্রুপ করে লেসনের টাইটেলসহ নিয়ে আসা
+// 1. [GET] Group all reports in frontend format and include the lesson title
 app.get("/api/reports", async (req, res) => {
   try {
     const groupedReports = await ReportsCollection.aggregate([
-      { $match: { status: "pending" } }, // শুধু পেন্ডিং রিপোর্টগুলো প্রসেস হবে
+      { $match: { status: "pending" } }, // Only pending reports will be processed
       {
-        // লেসন আইডি স্ট্রিং হলে অবজেক্ট আইডিতে রূপান্তর (যদি ডাটাবেজে ObjectId হিসেবে সেভ করেন)
+        // Convert the lesson ID from string to ObjectId if it is stored as ObjectId in the database
         $addFields: {
           lessonObjId: { $toObjectId: "$lessonId" },
         },
       },
       {
-        // lessonsCollection থেকে লেসনের টাইটেল বা অন্যান্য ইনফো নিয়ে আসা
+        // Fetch lesson title and other info from the lessons collection
         $lookup: {
-          from: "lessons", // আপনার lessons কালেকশনের নাম এখানে দিন
+          from: "lessons", // Enter the name of your lessons collection here
           localField: "lessonObjId",
           foreignField: "_id",
           as: "lessonDetails",
         },
       },
-      { $unwind: "$lessonDetails" }, // অ্যারে থেকে অবজেক্টে রূপান্তর
+      { $unwind: "$lessonDetails" }, // Convert the array into an object
       {
-        // ফ্রন্টএন্ডের মক ডাটা ফরম্যাটে গ্রুপ করা
+        // Group data in a mock frontend format
         $group: {
           _id: "$lessonId",
           title: { $first: "$lessonDetails.title" },
@@ -531,7 +531,7 @@ app.get("/api/reports", async (req, res) => {
           latestReportDate: { $max: "$createdAt" },
           reports: {
             $push: {
-              reporter: { $ifNull: ["$userEmail", "Anonymous"] }, // আপনার রিপোর্টে ইমেইল থাকলে দিবেন, না হলে userId
+              reporter: { $ifNull: ["$userEmail", "Anonymous"] }, // Use the email from the report if available; otherwise use userId
               date: "$createdAt",
               reason: "$reason",
               details: {
@@ -542,7 +542,7 @@ app.get("/api/reports", async (req, res) => {
         },
       },
       {
-        // ফ্রন্টএন্ড ভ্যারিয়েবলের সাথে ফিল্ড ম্যাচ করানো
+        // Match the fields with frontend variables
         $project: {
           _id: 0,
           id: "$_id",
@@ -563,14 +563,14 @@ app.get("/api/reports", async (req, res) => {
   }
 });
 
-// ২. [POST] ইউজার কর্তৃক নতুন কোনো লেসন রিপোর্ট সাবমিট করা
+// 2. [POST] Submit a new lesson report by a user
 app.post("/api/reports", async (req, res) => {
   try {
     const { userId, userEmail, lessonId, reason, details } = req.body;
 
     console.log("Incoming Report Data:", req.body);
 
-    // ১. প্রয়োজনীয় ফিল্ডগুলো ফ্রন্টএন্ড থেকে এসেছে কিনা তা চেক করা (ভ্যালিডেশন)
+    // 1. Validate whether the required fields were received from the frontend
     if (!userId || !lessonId || !reason) {
       return res.status(400).json({
         success: false,
@@ -579,21 +579,21 @@ app.post("/api/reports", async (req, res) => {
       });
     }
 
-    // ২. ডাটাবেজে সেভ করার জন্য অবজেক্ট তৈরি করা (আপনার GET এপিআই এর সাথে হুবহু মিল রেখে)
+    // 2. Create an object to save in the database (matching your GET API structure)
     const newReport = {
       userId: userId,
-      userEmail: userEmail || "Anonymous", // ইউজার ইমেইল না থাকলে 'Anonymous' হবে
-      lessonId: lessonId, // আপনার GET এগ্রিগেশনে $toObjectId করা আছে, তাই এটি স্ট্রিং আকারে যাবে
+      userEmail: userEmail || "Anonymous", // Use 'Anonymous' if the user email is not available
+      lessonId: lessonId, // This will be stored as a string so that $toObjectId can be applied in the GET aggregation
       reason: reason,
       details: details || "No additional details provided.",
-      status: "pending", // ডিফল্ট স্ট্যাটাস 'pending' থাকবে যাতে GET এপিআই-তে শো করে
-      createdAt: new Date(), // আপনার এগ্রিগেশনের $max: "$createdAt" এর জন্য এটি প্রয়োজন
+      status: "pending", // Default status remains 'pending' so it appears in the GET API
+      createdAt: new Date(), // Required for the aggregation's $max: "$createdAt"
     };
 
-    // ৩. রিপোর্ট কালেকশনে ডাটা ইনসার্ট করা
+    // 3. Insert report data into the reports collection
     const result = await ReportsCollection.insertOne(newReport);
 
-    // ৪. সাকসেস রেসপন্স পাঠানো
+    // 4. Send a success response
     res.status(201).json({
       success: true,
       message: "Report submitted successfully. Admin will review it shortly.",
@@ -608,13 +608,13 @@ app.post("/api/reports", async (req, res) => {
   }
 });
 
-// ৩. [DELETE] রিপোর্ট ডিলিশন (অফেন্ডিং লেসন এবং তার সমস্ত রিপোর্ট ডিলিট করা)
+// 3. [DELETE] Delete a report (delete the offending lesson and all its reports)
 app.delete("/api/reports/action/delete/:lessonId", async (req, res) => {
   const { lessonId } = req.params;
   try {
-    // ক) লেসন কালেকশন থেকে মেইন লেসনটি ডিলিট করা
+    // a) Delete the main lesson from the lessons collection
     await lessonsCollection.deleteOne({ _id: new ObjectId(lessonId) });
-    // খ) রিপোর্ট কালেকশন থেকে এই লেসনের সমস্ত রিপোর্ট ডিলিট করা
+    // b) Delete all reports for this lesson from the reports collection
     await ReportsCollection.deleteMany({ lessonId: lessonId });
 
     res.json({
@@ -626,11 +626,11 @@ app.delete("/api/reports/action/delete/:lessonId", async (req, res) => {
   }
 });
 
-// 4. [PATCH] রিপোর্ট ইগনোর/ডিসমিস করা (লেসন থাকবে, শুধু রিপোর্টের স্ট্যাটাস 'dismissed' হবে)
+// 4. [PATCH] Ignore or dismiss a report (the lesson remains, only the report status becomes 'dismissed')
 app.patch("/api/reports/action/ignore/:lessonId", async (req, res) => {
   const { lessonId } = req.params;
   try {
-    // এই লেসনের সব রিপোর্টের স্ট্যাটাস পেন্ডিং থেকে dismissed করে দেওয়া হলো
+    // Change the status of all reports for this lesson from pending to dismissed
     await ReportsCollection.updateMany(
       { lessonId: lessonId },
       { $set: { status: "dismissed" } },
@@ -710,11 +710,11 @@ app.delete("/api/users/:id", async (req, res) => {
   }
 });
 
-// ১. রিভিউ স্ট্যাটাস আপডেট করার API (Approved / Reviewed)
+// 1. API to update the review status (Approved / Reviewed)
 app.patch("/api/lessons/review/:id", async (req, res) => {
   try {
     const lessonId = req.params.id;
-    const { isReviewed } = req.body; // true অথবা false আসবে
+    const { isReviewed } = req.body; // true or false will come from the request body
 
     const result = await lessonsCollection.updateOne(
       { _id: new ObjectId(lessonId) },
@@ -727,7 +727,7 @@ app.patch("/api/lessons/review/:id", async (req, res) => {
   }
 });
 
-// ২. ফিচারড করার API (Make Featured / Remove Featured)
+// 2. API to mark or unmark a lesson as featured
 app.patch("/api/lessons/featured/:id", async (req, res) => {
   try {
     const lessonId = req.params.id;
@@ -744,7 +744,7 @@ app.patch("/api/lessons/featured/:id", async (req, res) => {
   }
 });
 
-// ৩. লেসন ডিলিট করার API
+// 3. API to delete a lesson
 app.delete("/api/lessons/:id", async (req, res) => {
   try {
     const lessonId = req.params.id;
